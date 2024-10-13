@@ -1,13 +1,14 @@
-import mido
-import json
-import os
 import glob
+import json
 import math
+import os
+import mido
+
 
 def midi_to_cnc(midi_file_path, output_file_prefix, output_dir, cnc_axes=2):
     # Open the MIDI file
     mid = mido.MidiFile(midi_file_path)
-    
+
     # Initialize data structures
     note_events = []  # Collect all note events
     tempo = 500000  # Default MIDI tempo (120 BPM)
@@ -99,7 +100,7 @@ def midi_to_cnc(midi_file_path, output_file_prefix, output_dir, cnc_axes=2):
 
     # Calculate number of output files needed
     num_output_files = math.ceil(max_simultaneous_notes / cnc_axes)
-    
+
     # Ask user if they want to split into multiple output files
     split_files = False
     if num_output_files > 1:
@@ -111,7 +112,8 @@ def midi_to_cnc(midi_file_path, output_file_prefix, output_dir, cnc_axes=2):
 
     # Prompt for speed multiplier
     try:
-        speed_multiplier_input = input("Enter speed multiplier (e.g., 2 for double speed, 0.5 for half speed, default is 1): ").strip()
+        speed_multiplier_input = input(
+            "Enter speed multiplier (e.g., 2 for double speed, 0.5 for half speed, default is 1): ").strip()
         speed_multiplier = float(speed_multiplier_input) if speed_multiplier_input else 1.0
     except ValueError:
         speed_multiplier = 1.0
@@ -136,14 +138,15 @@ def midi_to_cnc(midi_file_path, output_file_prefix, output_dir, cnc_axes=2):
             # Assign axes
             for interval in file_notes:
                 # Find overlapping notes
-                overlapping_notes = [n for n in file_notes if not (n['end_time'] <= interval['start_time'] or n['start_time'] >= interval['end_time'])]
+                overlapping_notes = [n for n in file_notes if not (
+                        n['end_time'] <= interval['start_time'] or n['start_time'] >= interval['end_time'])]
                 overlapping_notes.sort(key=lambda x: x['start_time'])
                 # Assign axes based on overlap index
                 for idx, note in enumerate(overlapping_notes):
                     note['axis'] = axes[idx % cnc_axes]  # Assign axis in a round-robin fashion
 
             # Save output file
-            output_filename = os.path.join(output_dir, f"{output_file_prefix}_{file_idx+1}.json")
+            output_filename = os.path.join(output_dir, f"{output_file_prefix}_{file_idx + 1}.json")
             output_data = []
             for note in file_notes:
                 output_data.append({
@@ -170,7 +173,8 @@ def midi_to_cnc(midi_file_path, output_file_prefix, output_dir, cnc_axes=2):
         for t in times:
             overlaps = [n for n in note_intervals if n['start_time'] <= t < n['end_time']]
             if len(overlaps) > cnc_axes:
-                print(f"Warning: At time {t}s, there are {len(overlaps)} overlapping notes, which exceeds the CNC's capacity.")
+                print(
+                    f"Warning: At time {t}s, there are {len(overlaps)} overlapping notes, which exceeds the CNC's capacity.")
 
         # Save single output file
         output_filename = os.path.join(output_dir, f"{output_file_prefix}.json")
@@ -186,6 +190,7 @@ def midi_to_cnc(midi_file_path, output_file_prefix, output_dir, cnc_axes=2):
         with open(output_filename, 'w') as f:
             json.dump(output_data, f, indent=4)
         print(f"Output saved to {output_filename}")
+
 
 def assign_intervals_to_files(note_intervals, cnc_axes):
     """Assign intervals to files ensuring no more than cnc_axes overlaps at any time."""
@@ -222,11 +227,13 @@ def assign_intervals_to_files(note_intervals, cnc_axes):
             output_files.append([interval])
     return output_files
 
+
 def midi_note_to_freq(midi_note):
     # Convert MIDI note number to frequency
     a4_note = 69
     a4_freq = 440.0
     return round(a4_freq * (2 ** ((midi_note - a4_note) / 12)), 2)
+
 
 # Example usage
 if __name__ == "__main__":
@@ -256,7 +263,8 @@ if __name__ == "__main__":
 
         # Ask for output file prefix
         default_output_prefix = os.path.splitext(os.path.basename(selected_file))[0]
-        output_file_prefix = input(f"Enter the output file prefix (e.g., 'output' for output.json, default is '{default_output_prefix}'): ").strip()
+        output_file_prefix = input(
+            f"Enter the output file prefix (e.g., 'output' for output.json, default is '{default_output_prefix}'): ").strip()
         if not output_file_prefix:
             output_file_prefix = default_output_prefix
 

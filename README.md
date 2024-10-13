@@ -129,8 +129,7 @@ CNC-MelodyMaker/
 │   └── ...
 ├── music/
 │   └── ...
-├── preview.py
-└── test.py
+└── preview.py
 ```
 
 - **README.md**: Project documentation.
@@ -140,7 +139,6 @@ CNC-MelodyMaker/
 - **preview.py**: Script to preview songs on your computer.
 - **midi/**: Directory containing MIDI files.
 - **music/**: Directory containing converted JSON files.
-- **test.py**: Additional testing scripts.
 
 ## Warnings
 

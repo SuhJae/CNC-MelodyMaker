@@ -1,20 +1,23 @@
+import glob
+import json
+import math
+import os
+import queue
+import threading
+import time
+
 import serial
 import serial.tools.list_ports
-import time
-import json
-import os
-import threading
-import queue
-import math
-import glob
 
 # Configuration file to save the last used port
 config_file = 'arduino_config.json'
+
 
 def save_config(port):
     """Save the last used port to a configuration file."""
     with open(config_file, 'w') as f:
         json.dump({'port': port}, f)
+
 
 def load_config():
     """Load the last used port from the configuration file."""
@@ -23,6 +26,7 @@ def load_config():
             return json.load(f).get('port', None)
     return None
 
+
 def detect_ports():
     """Detect available serial ports."""
     ports = list(serial.tools.list_ports.comports())
@@ -30,6 +34,7 @@ def detect_ports():
         print("No serial ports found. Please connect your device and try again.")
         return None
     return ports
+
 
 def choose_port():
     """Allow the user to choose a serial port, using the last saved port if available."""
@@ -56,6 +61,7 @@ def choose_port():
     except (ValueError, IndexError):
         print("Invalid selection. Please run the script again.")
         return None
+
 
 def send_gcode(ser, command, lock):
     """Send a G-code command to GRBL and wait for the response."""
@@ -84,6 +90,7 @@ def send_gcode(ser, command, lock):
             print(f"Error sending G-code '{command}': {e}")
             raise
 
+
 def serial_worker(ser, command_queue, lock, stop_event):
     """Thread function to send commands from the queue to GRBL."""
     while not stop_event.is_set() or not command_queue.empty():
@@ -99,11 +106,13 @@ def serial_worker(ser, command_queue, lock, stop_event):
             print(f"Serial worker error: {e}")
             stop_event.set()
 
+
 # Function to calculate feed rate based on frequency
 def calculate_feed_rate(frequency):
     mm_per_step = 0.0375  # mm per step (calculated from machine specs)
     feed_rate = frequency * mm_per_step * 60  # in mm/min
     return feed_rate
+
 
 def calculate_combined_feed_rate(distances, required_feed_rates):
     """Calculate the combined feed rate to maintain per-axis feed rates during diagonal movements."""
@@ -126,6 +135,7 @@ def calculate_combined_feed_rate(distances, required_feed_rates):
 
     return combined_feed_rate
 
+
 def choose_direction(axis, current_position, movement_distance, center_position, max_travel):
     # Decide direction based on which way brings us closer to center_position
     if current_position > center_position:
@@ -139,6 +149,7 @@ def choose_direction(axis, current_position, movement_distance, center_position,
         else:
             return -1
 
+
 def adjust_movement_distance(axis, current_position, desired_distance, center_position, max_travel):
     # Calculate potential new position
     new_position = current_position + desired_distance
@@ -151,6 +162,7 @@ def adjust_movement_distance(axis, current_position, desired_distance, center_po
         return adjusted_distance
     else:
         return desired_distance
+
 
 def calculate_movement_time(distances, feed_rate, acceleration_settings):
     """
@@ -174,6 +186,7 @@ def calculate_movement_time(distances, feed_rate, acceleration_settings):
         t_total = 2 * t_accel + t_constant
 
     return t_total
+
 
 def play_notes(ser, notes, command_queue, lock):
     # Initialize variables
@@ -241,11 +254,13 @@ def play_notes(ser, notes, command_queue, lock):
             note_distance = note_feed_rate * (interval_duration / 60.0)
 
             # Adjust direction based on current position
-            direction = choose_direction(axis, axis_positions[axis], note_distance, center_position[axis], max_travel[axis])
+            direction = choose_direction(axis, axis_positions[axis], note_distance, center_position[axis],
+                                         max_travel[axis])
             note_distance *= direction
 
             # Adjust movement distance to stay within limits
-            adjusted_distance = adjust_movement_distance(axis, axis_positions[axis], note_distance, center_position[axis], max_travel[axis])
+            adjusted_distance = adjust_movement_distance(axis, axis_positions[axis], note_distance,
+                                                         center_position[axis], max_travel[axis])
 
             # Store calculated values
             distances[axis] = adjusted_distance
@@ -271,11 +286,13 @@ def play_notes(ser, notes, command_queue, lock):
         # Wait for the movement to complete
         time.sleep(actual_movement_time)
 
+
 def get_acceleration_settings(ser, lock):
     """Retrieve the acceleration settings from GRBL."""
     settings = {'X': 1000, 'Y': 1000}  # Default to 1000 mm/s² if unknown
     send_gcode(ser, "$$", lock)
     return settings
+
 
 def main():
     selected_port = choose_port()
@@ -296,7 +313,7 @@ def main():
 
         # Wake up GRBL
         ser.write("\r\n\r\n".encode())
-        time.sleep(2)   # Wait for GRBL to initialize
+        time.sleep(2)  # Wait for GRBL to initialize
         ser.flushInput()  # Flush startup text in serial input
 
         # Read any initial messages
@@ -340,6 +357,7 @@ def main():
             ser.close()
             stop_event.set()
             print("Serial connection closed.")
+
 
 if __name__ == "__main__":
     main()

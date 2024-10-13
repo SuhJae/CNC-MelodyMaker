@@ -1,13 +1,15 @@
-import numpy as np
-import json
-import time
-import os
 import glob
+import json
+import os
 import re
 import threading
+import time
 import tkinter as tk
 from tkinter import ttk
+
+import numpy as np
 import pyaudio
+
 
 # Function to calculate feed rate based on frequency (from CNC code)
 def calculate_feed_rate(frequency):
@@ -15,11 +17,13 @@ def calculate_feed_rate(frequency):
     feed_rate = frequency * mm_per_step * 60 * 2  # in mm/min
     return feed_rate
 
+
 # Function to calculate actual frequency from feed rate
 def calculate_actual_frequency(feed_rate):
     mm_per_step = 0.0375  # mm per step (calculated from machine specs)
     frequency = feed_rate / (mm_per_step * 60)
     return frequency
+
 
 def generate_sine_wave(frequency, duration, sample_rate=44100, volume=0.5, fade_duration=0.01):
     """
@@ -51,8 +55,9 @@ def generate_sine_wave(frequency, duration, sample_rate=44100, volume=0.5, fade_
         fade_out_envelope = np.linspace(1, 0, fade_out_samples)
         wave[-fade_out_samples:] *= fade_out_envelope
 
-    audio = wave * (2**15 - 1) * volume
+    audio = wave * (2 ** 15 - 1) * volume
     return audio.astype(np.int16)
+
 
 class AudioPlayer:
     def __init__(self, json_files):
@@ -95,7 +100,6 @@ class AudioPlayer:
             # Prepare audio buffer for this file
             audio_buffer = self.generate_audio_buffer(notes)
             self.audio_buffers_per_file.append(audio_buffer)
-
 
     def generate_audio_buffer(self, notes):
         total_samples = int(self.sample_rate * self.total_duration)
@@ -259,6 +263,7 @@ class AudioPlayer:
     def get_progress(self):
         return self.current_time, self.total_duration
 
+
 def get_songs_in_music_folder(music_folder):
     json_files = glob.glob(os.path.join(music_folder, '*.json'))
 
@@ -275,6 +280,7 @@ def get_songs_in_music_folder(music_folder):
                 song_dict[base_name] = []
             song_dict[base_name].append(filepath)
     return song_dict
+
 
 def main():
     # Directory containing JSON files
@@ -317,7 +323,8 @@ def main():
 
         # Progress bar and time labels
         progress_var = tk.DoubleVar()
-        progress_bar = ttk.Scale(root, variable=progress_var, from_=0, to=player.total_duration, orient='horizontal', length=400)
+        progress_bar = ttk.Scale(root, variable=progress_var, from_=0, to=player.total_duration, orient='horizontal',
+                                 length=400)
         progress_bar.pack(pady=5)
 
         time_frame = tk.Frame(root)
@@ -383,6 +390,7 @@ def main():
         update_progress()
         root.mainloop()
         player.stop()
+
 
 if __name__ == "__main__":
     main()

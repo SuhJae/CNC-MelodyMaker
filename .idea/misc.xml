@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="Black">
+    <option name="sdkName" value="Python 3.12 (music)" />
+  </component>
+  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.12 (music)" project-jdk-type="Python SDK" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <created>1710237426757</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1710237426757</updated>
+      <workItem from="1710237427776" duration="184000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TimeTrackingManager">
+    <option name="totallyTimeSpent" value="184000" />
+  </component>
+</project>
