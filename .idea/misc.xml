@@ -3,7 +3,7 @@
   <component name="Black">
     <option name="sdkName" value="Python 3.12 (music)" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.12 (music)" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.12 (CNC-MelodyMaker)" project-jdk-type="Python SDK" />
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
       <created>1710237426757</created>
