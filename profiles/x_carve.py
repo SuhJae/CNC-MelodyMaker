@@ -12,7 +12,7 @@ from cnc import CNCMachine
 
 class XCarve(CNCMachine):
     def __init__(self):
-        self.config_file = 'x_carve_config.json'
+        self.config_file = 'config/x_carve.json'
         self.ser = None
         self.lock = threading.Lock()
         self.command_queue = queue.Queue()
