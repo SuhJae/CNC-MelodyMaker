@@ -72,7 +72,7 @@ This command will show a series of prompts to guide you through the conversion p
 
 ### Previewing Songs
 
-<img src="docs/preview.png" alt="Preview GUI" style="max-width: 400px;"/>
+<img src="docs/preview.png" alt="Preview GUI" style="width: 400px;"/>
 
 Use `preview.py` to listen to a preview of the converted songs on your computer.
 
