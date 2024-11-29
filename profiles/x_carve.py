@@ -1,10 +1,11 @@
-import os
 import json
-import serial
-import threading
-import queue
-import time
 import math
+import os
+import queue
+import threading
+import time
+
+import serial
 import serial.tools.list_ports
 
 from cnc import CNCMachine
@@ -18,8 +19,12 @@ class XCarve(CNCMachine):
         self.command_queue = queue.Queue()
         self.stop_event = threading.Event()
         self.worker_thread = None
-        self.axis_positions = {'X': 100.0, 'Y': 100.0}  # Start at (100,100)
-        self.center_position = {'X': 100.0, 'Y': 100.0}
+        self.axis_positions = {'X': 0, 'Y': 0}  # Start at (0,0)
+        self.working_bound_1 = {'X': 100, 'Y': 100}  # Working area for the X-Carve
+        self.working_bound_2 = {'X': 300, 'Y': 300}
+
+        self.direction = 1  # Default direction for movement
+
         self.max_travel = {'X': 50.0, 'Y': 50.0}  # Maximum travel distance from center for each axis
 
     def get_available_ports(self):
@@ -178,35 +183,22 @@ class XCarve(CNCMachine):
 
     def choose_direction(self, axis, movement_distance):
         current_position = self.axis_positions[axis]
-        center_position = self.center_position[axis]
-        max_travel = self.max_travel[axis]
-        # Decide direction based on which way brings us closer to center_position
-        if current_position > center_position:
-            return -1  # Move towards center_position
-        elif current_position < center_position:
-            return 1  # Move towards center_position
-        else:
-            # At center_position, choose the direction that doesn't exceed limits
-            if current_position + movement_distance <= center_position + max_travel:
-                return 1
-            else:
-                return -1
+        min_bound = self.working_bound_1[axis]
+        max_bound = self.working_bound_2[axis]
+        proposed_position = current_position + (movement_distance * self.direction)
 
-    def adjust_movement_distance(self, axis, desired_distance):
-        current_position = self.axis_positions[axis]
-        center_position = self.center_position[axis]
-        max_travel = self.max_travel[axis]
-        # Calculate potential new position
-        new_position = current_position + desired_distance
-        if new_position > center_position + max_travel:
-            # Adjust the distance to not exceed max_travel
-            adjusted_distance = (center_position + max_travel) - current_position
-            return adjusted_distance
-        elif new_position < center_position - max_travel:
-            adjusted_distance = (center_position - max_travel) - current_position
-            return adjusted_distance
+        # Check if the proposed position is within bounds
+        if min_bound <= proposed_position <= max_bound:
+            # If the proposed movement is within bounds, retain the current direction
+            return
         else:
-            return desired_distance
+            # If the proposed position goes out of bounds, reverse direction
+            if proposed_position < min_bound:
+                # If it's below the lower bound, set direction to move positively
+                self.direction = 1
+            elif proposed_position > max_bound:
+                # If it's above the upper bound, set direction to move negatively
+                self.direction = -1
 
     def calculate_movement_time(self, distances, feed_rate, acceleration_settings):
         """
@@ -292,17 +284,14 @@ class XCarve(CNCMachine):
                 note_distance = note_feed_rate * (interval_duration / 60.0)
 
                 # Adjust direction based on current position
-                direction = self.choose_direction(axis, note_distance)
-                note_distance *= direction
-
-                # Adjust movement distance to stay within limits
-                adjusted_distance = self.adjust_movement_distance(axis, note_distance)
+                self.choose_direction(axis, note_distance)
+                note_distance *= self.direction
 
                 # Update current position
-                self.axis_positions[axis] += adjusted_distance
+                self.axis_positions[axis] += note_distance
 
                 # Store calculated values
-                distances[axis] = adjusted_distance
+                distances[axis] = note_distance
                 required_feed_rates[axis] = note_feed_rate
                 movement_durations[axis] = interval_duration
 

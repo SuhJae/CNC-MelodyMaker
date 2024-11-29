@@ -1,11 +1,14 @@
+# main.py
+
 import glob
 import json
 import os
 import sys
 
+from profiles.virtual_cnc import VirtualCNC
 # Import profiles
 from profiles.x_carve import XCarve
-from profiles.virtual_cnc import VirtualCNC
+
 
 def choose_machine():
     machines = {
@@ -23,6 +26,7 @@ def choose_machine():
     except (ValueError, IndexError):
         print("Invalid selection.")
         sys.exit()
+
 
 def choose_song():
     json_files = glob.glob("music/*.json")
@@ -49,21 +53,27 @@ def choose_song():
         return None
 
 
-
-if __name__ == "__main__":
+def main():
     cnc_machine = choose_machine()
     if not cnc_machine.connect():
         print("Failed to connect to the machine.")
-        exit()
+        return
 
     try:
         cnc_machine.initialize()
         notes = choose_song()
         if notes:
-            cnc_machine.play_notes(notes)
+            if isinstance(cnc_machine, VirtualCNC):
+                cnc_machine.run(notes)
+            else:
+                cnc_machine.play_notes(notes)
         else:
             print("No song selected.")
     except Exception as e:
         print(f"An error occurred: {e}")
     finally:
         cnc_machine.disconnect()
+
+
+if __name__ == "__main__":
+    main()
