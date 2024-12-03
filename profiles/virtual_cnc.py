@@ -22,14 +22,27 @@ class VirtualCNC(CNCMachine):
         self.window_width = 800
         self.window_height = 800
 
-        # Scaling factors to convert mm to pixels
-        self.scale_x = self.window_width / self.bed_width_mm
-        self.scale_y = self.window_height / self.bed_height_mm
+        # Margin in pixels
+        self.margin = 20
 
-        # Starting position at (0, 0) mm to match XCarve
-        self.axis_positions = {'X': 100.0, 'Y': 100.0}
-        self.center_position = {'X': 100.0, 'Y': 100.0}
-        self.max_travel = {'X': 50.0, 'Y': 50.0}  # Max travel from center
+        # Scaling factors to convert mm to pixels, accounting for margins
+        drawable_width = self.window_width - 2 * self.margin
+        drawable_height = self.window_height - 2 * self.margin
+        self.scale_x = drawable_width / self.bed_width_mm
+        self.scale_y = drawable_height / self.bed_height_mm
+
+        # Starting position at (0, 0) mm
+        self.axis_positions = {'X': 0.0, 'Y': 0.0}
+
+        # Define working bounds similar to XCarve
+        self.working_bound_1 = {'X': 100, 'Y': 100}  # Lower bounds
+        self.working_bound_2 = {'X': 300, 'Y': 300}  # Upper bounds
+
+        # Direction attribute to manage movement direction for each axis
+        self.direction = {'X': 1, 'Y': 1}  # Default direction for each axis
+
+        # Maximum travel distance from the lower bound for each axis
+        self.max_travel = {'X': 50.0, 'Y': 50.0}
 
         self.command_queue = queue.Queue()
         self.stop_event = threading.Event()
@@ -52,11 +65,13 @@ class VirtualCNC(CNCMachine):
         self.sample_rate = 44100
         self.chunk_size = 1024
         self.pyaudio_instance = pyaudio.PyAudio()
-        self.audio_stream = self.pyaudio_instance.open(format=pyaudio.paInt16,
-                                                       channels=1,
-                                                       rate=self.sample_rate,
-                                                       output=True,
-                                                       frames_per_buffer=self.chunk_size)
+        self.audio_stream = self.pyaudio_instance.open(
+            format=pyaudio.paInt16,
+            channels=1,
+            rate=self.sample_rate,
+            output=True,
+            frames_per_buffer=self.chunk_size
+        )
         self.audio_queue = queue.Queue()
 
     def connect(self):
@@ -139,17 +154,15 @@ class VirtualCNC(CNCMachine):
         event_times = sorted(event_times)
 
         # Build intervals between event times
+        intervals = []
         for i in range(len(event_times) - 1):
-            interval_start = event_times[i]
-            interval_end = event_times[i + 1]
+            intervals.append((event_times[i], event_times[i + 1]))
+
+        # For each interval, determine active notes
+        for interval_start, interval_end in intervals:
             interval_duration = interval_end - interval_start
             if interval_duration <= 0:
                 continue  # Skip zero-length intervals
-
-            # Calculate total samples for this interval
-            total_samples = int(self.sample_rate * interval_duration)
-            if total_samples <= 0:
-                continue  # Skip intervals with zero samples
 
             # Wait until interval_start
             current_time = time.time()
@@ -164,30 +177,17 @@ class VirtualCNC(CNCMachine):
                 note_start = note['start_time']
                 note_end = note_start + note['duration']
                 if note_start < interval_end and note_end > interval_start:
-                    # Calculate overlap duration and offset
-                    overlap_start = max(note_start, interval_start)
-                    overlap_end = min(note_end, interval_end)
-                    overlap_duration = overlap_end - overlap_start
-                    note_interval_offset = overlap_start - interval_start
-                    active_notes.append({
-                        'note': note,
-                        'overlap_duration': overlap_duration,
-                        'note_interval_offset': note_interval_offset
-                    })
+                    active_notes.append(note)
 
             if not active_notes:
                 continue  # No active notes during this interval
-
-            # Initialize combined audio buffer
-            combined_audio = np.zeros(total_samples, dtype=np.float32)
 
             # Calculate movements for active notes
             distances = {}
             required_feed_rates = {}
             movement_durations = {}
 
-            for active_note in active_notes:
-                note = active_note['note']
+            for note in active_notes:
                 axis = note['axis']
                 frequency = note['frequency']
                 max_feed_rate = 8000  # Maximum allowed feed rate
@@ -201,53 +201,21 @@ class VirtualCNC(CNCMachine):
                 # Calculate movement distance for this note
                 note_distance = note_feed_rate * (interval_duration / 60.0)
 
-                # Adjust direction based on current position
-                direction = self.choose_direction(axis, note_distance)
-                note_distance *= direction
-
-                # Adjust movement distance to stay within limits
-                adjusted_distance = self.adjust_movement_distance(axis, note_distance)
+                # Adjust direction based on current position and working bounds
+                self.choose_direction(axis, note_distance)
+                note_distance *= self.direction[axis]
 
                 # Update current position
-                self.axis_positions[axis] += adjusted_distance
+                self.axis_positions[axis] += note_distance
 
                 # Store calculated values
-                distances[axis] = adjusted_distance
+                distances[axis] = note_distance
                 required_feed_rates[axis] = note_feed_rate
                 movement_durations[axis] = interval_duration
 
                 # Generate tone for the note over its overlap duration
-                overlap_duration = active_note['overlap_duration']
-                note_offset = active_note['note_interval_offset']
-                sample_offset = int(self.sample_rate * note_offset)
-                num_samples = int(self.sample_rate * overlap_duration)
-
-                # Ensure we have samples to process
-                if num_samples <= 0:
-                    continue  # Skip if no samples
-
-                t = np.linspace(0, overlap_duration, num_samples, False)
-                wave = np.sin(2 * np.pi * frequency * t)
-
-                # Ensure the wave fits in the combined audio buffer
-                if sample_offset + num_samples > total_samples:
-                    num_samples = total_samples - sample_offset
-                    wave = wave[:num_samples]
-
-                # Add the wave to the combined audio buffer
-                combined_audio[sample_offset:sample_offset + num_samples] += wave
-
-            # Normalize the combined audio to prevent clipping
-            max_value = np.max(np.abs(combined_audio)) if combined_audio.size > 0 else 0
-            if max_value > 0:
-                combined_audio = combined_audio / max_value * 0.8  # Adjust volume as needed
-
-            # Convert to int16
-            audio_data = (combined_audio * 32767).astype(np.int16).tobytes()
-
-            # Send the combined audio data to the audio queue
-            if len(audio_data) > 0:
-                self.audio_queue.put(audio_data)
+                overlap_duration = min(note['duration'], interval_duration)
+                self.play_tone(frequency, overlap_duration)
 
             # Calculate combined feed rate for synchronized movement
             combined_feed_rate = self.calculate_combined_feed_rate(distances, required_feed_rates)
@@ -256,10 +224,17 @@ class VirtualCNC(CNCMachine):
             axes_moves = ' '.join(f"{axis}{distances[axis]:.4f}" for axis in distances)
             movement_command = f"G1 {axes_moves} F{combined_feed_rate:.2f}"
 
+            # Limit command queue size
+            while self.command_queue.qsize() >= 15:
+                time.sleep(0.1)
+
             self.command_queue.put(movement_command)
 
-            # Wait for the movement to be processed
-            time.sleep(interval_duration)
+            # Calculate movement time based on acceleration
+            actual_movement_time = self.calculate_movement_time(distances, combined_feed_rate, acceleration_settings)
+
+            # Wait for the movement to complete
+            time.sleep(actual_movement_time)
 
         # Signal that playback is complete
         self.running = False
@@ -281,48 +256,79 @@ class VirtualCNC(CNCMachine):
         return feed_rate
 
     def calculate_combined_feed_rate(self, distances, required_feed_rates):
-        # ... same as before ...
+        # Calculate total movement distance (Euclidean distance)
         total_distance = math.sqrt(sum(d ** 2 for d in distances.values()))
+
+        # Calculate required combined feed rates for each axis
         combined_feed_rates = {}
         for axis in distances:
             if distances[axis] == 0:
-                continue
+                continue  # Avoid division by zero
             combined_feed_rate = required_feed_rates[axis] * (total_distance / abs(distances[axis]))
             combined_feed_rates[axis] = combined_feed_rate
+
         if not combined_feed_rates:
             return 0
+
+        # Set combined feed rate to the maximum of the required combined feed rates
         combined_feed_rate = max(combined_feed_rates.values())
+
         return combined_feed_rate
 
-    def choose_direction(self, axis, movement_distance):
-        # ... same as before ...
-        current_position = self.axis_positions[axis]
-        center_position = self.center_position[axis]
-        max_travel = self.max_travel[axis]
-        if current_position > center_position:
-            return -1
-        elif current_position < center_position:
-            return 1
-        else:
-            if current_position + movement_distance <= center_position + max_travel:
-                return 1
-            else:
-                return -1
+    def calculate_movement_time(self, distances, combined_feed_rate, acceleration_settings):
+        """
+        Calculate the time required to complete the movement based on distances,
+        combined feed rate, and acceleration settings.
 
-    def adjust_movement_distance(self, axis, desired_distance):
-        # ... same as before ...
+        Parameters:
+        - distances (dict): Movement distances for each axis.
+        - combined_feed_rate (float): The combined feed rate in mm/min.
+        - acceleration_settings (dict): Acceleration settings for each axis.
+
+        Returns:
+        - float: Time in seconds required to complete the movement.
+        """
+        if combined_feed_rate == 0:
+            return 0
+
+        # Convert feed rate from mm/min to mm/s
+        feed_rate_mm_per_sec = combined_feed_rate / 60.0
+
+        # Calculate the total distance using Euclidean distance
+        total_distance = math.sqrt(sum(d ** 2 for d in distances.values()))
+
+        # Calculate time based on feed rate and total distance
+        # Time = Distance / Speed
+        movement_time = total_distance / feed_rate_mm_per_sec
+
+        # Optional: Adjust time based on acceleration settings
+        # This is a simplified approach; for more accurate simulation,
+        # consider acceleration and deceleration phases.
+
+        return movement_time
+
+    def choose_direction(self, axis, movement_distance):
+        """
+        Adjust the movement direction based on working bounds.
+        Similar to XCarve's choose_direction method.
+        """
         current_position = self.axis_positions[axis]
-        center_position = self.center_position[axis]
-        max_travel = self.max_travel[axis]
-        new_position = current_position + desired_distance
-        if new_position > center_position + max_travel:
-            adjusted_distance = (center_position + max_travel) - current_position
-            return adjusted_distance
-        elif new_position < center_position - max_travel:
-            adjusted_distance = (center_position - max_travel) - current_position
-            return adjusted_distance
+        min_bound = self.working_bound_1[axis]
+        max_bound = self.working_bound_2[axis]
+        proposed_position = current_position + (movement_distance * self.direction[axis])
+
+        # Check if the proposed position is within bounds
+        if min_bound <= proposed_position <= max_bound:
+            # If the proposed movement is within bounds, retain the current direction
+            return
         else:
-            return desired_distance
+            # If the proposed position goes out of bounds, reverse direction
+            if proposed_position < min_bound:
+                # If it's below the lower bound, set direction to move positively
+                self.direction[axis] = 1
+            elif proposed_position > max_bound:
+                # If it's above the upper bound, set direction to move negatively
+                self.direction[axis] = -1
 
     def get_acceleration_settings(self):
         return {'X': 1000, 'Y': 1000}
@@ -387,17 +393,36 @@ class VirtualCNC(CNCMachine):
         pygame.quit()
 
     def axis_to_screen_x(self, x_mm):
-        return int(x_mm * self.scale_x)
+        """
+        Convert X axis position in mm to screen X coordinate in pixels,
+        accounting for the left margin.
+        """
+        return int(x_mm * self.scale_x) + self.margin
 
     def axis_to_screen_y(self, y_mm):
-        return int(self.window_height - (y_mm * self.scale_y))
+        """
+        Convert Y axis position in mm to screen Y coordinate in pixels,
+        accounting for the bottom margin.
+        """
+        return int(self.window_height - (y_mm * self.scale_y)) - self.margin
 
     def draw_axes(self, font, axis_color):
-        # ... same as before ...
         # Draw X-axis
-        pygame.draw.line(self.screen, axis_color, (0, self.window_height), (self.window_width, self.window_height), 2)
+        pygame.draw.line(
+            self.screen,
+            axis_color,
+            (self.margin, self.window_height - self.margin),
+            (self.window_width - self.margin, self.window_height - self.margin),
+            2
+        )
         # Draw Y-axis
-        pygame.draw.line(self.screen, axis_color, (0, 0), (0, self.window_height), 2)
+        pygame.draw.line(
+            self.screen,
+            axis_color,
+            (self.margin, self.margin),
+            (self.margin, self.window_height - self.margin),
+            2
+        )
 
         # Draw tick marks and labels
         tick_interval_mm = 50  # Every 50 mm
@@ -406,22 +431,35 @@ class VirtualCNC(CNCMachine):
         # X-axis ticks
         for x_mm in range(0, int(self.bed_width_mm) + 1, tick_interval_mm):
             x_px = self.axis_to_screen_x(x_mm)
-            pygame.draw.line(self.screen, axis_color, (x_px, self.window_height),
-                             (x_px, self.window_height - tick_length))
+            pygame.draw.line(
+                self.screen,
+                axis_color,
+                (x_px, self.window_height - self.margin),
+                (x_px, self.window_height - self.margin - tick_length),
+                1
+            )
             label = font.render(str(x_mm), True, axis_color)
-            self.screen.blit(label,
-                             (x_px - label.get_width() // 2, self.window_height - label.get_height() - tick_length))
+            label_rect = label.get_rect(
+                center=(x_px, self.window_height - self.margin + tick_length + label.get_height() // 2))
+            self.screen.blit(label, label_rect)
 
         # Y-axis ticks
         for y_mm in range(0, int(self.bed_height_mm) + 1, tick_interval_mm):
             y_px = self.axis_to_screen_y(y_mm)
-            pygame.draw.line(self.screen, axis_color, (0, y_px), (tick_length, y_px))
+            pygame.draw.line(
+                self.screen,
+                axis_color,
+                (self.margin, y_px),
+                (self.margin + tick_length, y_px),
+                1
+            )
             label = font.render(str(y_mm), True, axis_color)
-            self.screen.blit(label, (tick_length + 2, y_px - label.get_height() // 2))
+            label_rect = label.get_rect(midleft=(self.margin + tick_length + 2, y_px))
+            self.screen.blit(label, label_rect)
 
     def draw_crosshairs(self, current_pos, crosshair_color):
         x, y = current_pos
         # Vertical line
-        pygame.draw.line(self.screen, crosshair_color, (x, 0), (x, self.window_height))
+        pygame.draw.line(self.screen, crosshair_color, (x, self.margin), (x, self.window_height - self.margin), 1)
         # Horizontal line
-        pygame.draw.line(self.screen, crosshair_color, (0, y), (self.window_width, y))
+        pygame.draw.line(self.screen, crosshair_color, (self.margin, y), (self.window_width - self.margin, y), 1)
